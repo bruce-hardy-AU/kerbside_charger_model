@@ -172,6 +172,52 @@ def sensitivity_analysis(param_name, test_values, outcome_key):
     return pd.DataFrame(results, columns=[param_name, outcome_key])
 
 
+def run_comparison_scenarios():
+    """
+    Runs multiple scenarios and returns their results for comparison.
+    
+    Returns:
+        dict: Dictionary of scenario names and their revenue dataframes
+    """
+    # Base scenario (default parameters)
+    _, _, _, base_rev_df, _ = run_ev_charger_model(default_params)
+    base_rev_df['Scenario'] = 'Base Case'
+    
+    # High-Plus scenario (worse case)
+    high_plus_scenario = default_params.copy()
+    high_plus_scenario.update(high_plus_params)
+    _, _, _, high_plus_rev_df, _ = run_ev_charger_model(high_plus_scenario)
+    high_plus_rev_df['Scenario'] = 'High Cost Case'
+    
+    # Lower Cost scenario (optimistic case)
+    low_cost_scenario = default_params.copy()
+    low_cost_scenario.update({
+        "CapExPerCharger": 4500,
+        "OpExPerCharger": 400,
+        "WACC1to5": 0.05
+    })
+    _, _, _, low_cost_rev_df, _ = run_ev_charger_model(low_cost_scenario)
+    low_cost_rev_df['Scenario'] = 'Low Cost Case'
+    
+    # More Chargers scenario
+    more_chargers_scenario = default_params.copy()
+    more_chargers_scenario.update({
+        "ChargersPerYear": 7500
+    })
+    _, _, _, more_chargers_rev_df, _ = run_ev_charger_model(more_chargers_scenario)
+    more_chargers_rev_df['Scenario'] = 'More Chargers'
+    
+    # Combine all scenarios into one dataframe for easier plotting
+    all_scenarios_df = pd.concat([
+        base_rev_df, 
+        high_plus_rev_df, 
+        low_cost_rev_df,
+        more_chargers_rev_df
+    ])
+    
+    return all_scenarios_df
+
+
 # ========================
 # 3. Streamlit Web Interface
 # ========================
@@ -185,7 +231,7 @@ def main():
     
     Financial Concepts Explained:
       - The model simulates a phased rollout of EV chargers (e.g. 5,000 per year for 6 years),
-        and calculates how capital expenditures are depreciated over an asset’s life.
+        and calculates how capital expenditures are depreciated over an asset's life.
       - It tracks the evolution of the Regulatory Asset Base (RAB) which, together with
         operating expenses and financing costs (WACC), determines the revenue requirement.
       - This revenue requirement is then passed through to households as an increased bill.
@@ -311,6 +357,88 @@ def main():
             ax.set_xlabel("Delta")
             ax.set_ylabel(param)
     st.pyplot(fig6)
+
+    # ---------------------------
+    # Scenario Comparison
+    # ---------------------------
+    st.markdown("### Scenario Comparison")
+    st.write("""
+        Compare how different scenarios affect household bill impacts over time.
+        Scenarios include the base case and various alternative assumptions.
+    """)
+    
+    # Run scenarios
+    scenarios_df = run_comparison_scenarios()
+    
+    # Create a color palette for scenarios
+    scenario_colors = {
+        'Base Case': 'blue',
+        'High Cost Case': 'red',
+        'Low Cost Case': 'green',
+        'More Chargers': 'purple'
+    }
+    
+    # Annual Bill Impact Comparison
+    fig7, ax7 = plt.subplots(figsize=(10, 6))
+    for scenario, group in scenarios_df.groupby('Scenario'):
+        sns.lineplot(
+            x="Year", 
+            y="BillImpactPerCustomer", 
+            data=group, 
+            label=scenario, 
+            marker="o", 
+            linewidth=2.5,
+            color=scenario_colors.get(scenario, 'gray'),
+            ax=ax7
+        )
+    ax7.set_title('Annual Bill Impact per Customer - Scenario Comparison', fontsize=14)
+    ax7.set_ylabel('Annual Bill Impact ($)', fontsize=12)
+    ax7.set_xlabel('Year', fontsize=12)
+    ax7.grid(True, alpha=0.3)
+    ax7.legend(title='Scenario')
+    st.pyplot(fig7)
+    
+    # Cumulative Bill Impact Comparison
+    fig8, ax8 = plt.subplots(figsize=(10, 6))
+    for scenario, group in scenarios_df.groupby('Scenario'):
+        sns.lineplot(
+            x="Year", 
+            y="CumulativeBillImpact", 
+            data=group, 
+            label=scenario, 
+            marker="o", 
+            linewidth=2.5,
+            color=scenario_colors.get(scenario, 'gray'),
+            ax=ax8
+        )
+    ax8.set_title('Cumulative Bill Impact per Customer - Scenario Comparison', fontsize=14)
+    ax8.set_ylabel('Cumulative Bill Impact ($)', fontsize=12)
+    ax8.set_xlabel('Year', fontsize=12)
+    ax8.grid(True, alpha=0.3)
+    ax8.legend(title='Scenario')
+    st.pyplot(fig8)
+    
+    # Table of Average Annual Bill Impacts
+    st.subheader("Average Annual Bill Impact by Scenario")
+    avg_bill_impacts = scenarios_df.groupby('Scenario')['BillImpactPerCustomer'].mean().reset_index()
+    avg_bill_impacts.columns = ['Scenario', 'Average Annual Bill Impact ($)']
+    avg_bill_impacts['Average Annual Bill Impact ($)'] = avg_bill_impacts['Average Annual Bill Impact ($)'].round(2)
+    st.dataframe(avg_bill_impacts.sort_values('Average Annual Bill Impact ($)'))
+    
+    # Add a bar chart for the average bill impacts
+    fig9, ax9 = plt.subplots(figsize=(10, 5))
+    sns.barplot(
+        x='Scenario', 
+        y='Average Annual Bill Impact ($)', 
+        data=avg_bill_impacts,
+        palette=[scenario_colors.get(scenario, 'gray') for scenario in avg_bill_impacts['Scenario']],
+        ax=ax9
+    )
+    ax9.set_title('Average Annual Bill Impact by Scenario', fontsize=14)
+    ax9.set_ylabel('Average Bill Impact ($)', fontsize=12)
+    ax9.set_xticklabels(ax9.get_xticklabels(), rotation=45, ha='right')
+    ax9.grid(True, alpha=0.3, axis='y')
+    st.pyplot(fig9)
 
 
 # ========================
